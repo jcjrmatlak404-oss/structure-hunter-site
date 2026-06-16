@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Structure Hunter — find what the records forgot</title>
+<meta name="description" content="A free, open-source survey console that finds structures missing from official records, using public building footprints, address data, and LiDAR.">
+<style>
+  :root{
+    --steel-0:#16191e; --steel-1:#1f242b; --steel-2:#2a3039; --steel-3:#3a4049;
+    --line:#0c0e12; --ink:#e8ebf0; --ink-dim:#9aa3b0;
+    --amber:#f0a830; --amber-deep:#cf8c1e; --signal:#46d39a; --flag:#ff6a2b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--steel-0); color:var(--ink);
+    font-family:"SF Mono","Cascadia Code",ui-monospace,Menlo,Consolas,monospace;
+    line-height:1.6; -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  .display{
+    font-family:"SF Mono","Cascadia Code",ui-monospace,Menlo,Consolas,monospace;
+    letter-spacing:.16em; text-transform:uppercase; font-weight:700;
+  }
+  a{color:var(--amber); text-decoration:none;}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px;}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 24px; background:rgba(22,25,30,.82);
+    backdrop-filter:blur(10px); border-bottom:1px solid var(--line);
+  }
+  .topbar .brand{display:flex; align-items:center; gap:10px; font-size:13px; letter-spacing:.14em;}
+  .topbar .brand b{color:var(--ink); font-weight:700;}
+  .topbar .brand .dot{color:var(--amber);}
+  .btn{
+    display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+    font:inherit; font-size:13px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    color:#fff; border:1px solid var(--line); border-radius:6px;
+    background:linear-gradient(180deg,#ff7d44,var(--flag) 55%,#d8500f);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.3), 0 2px 6px rgba(0,0,0,.45);
+    padding:11px 20px; transition:filter .15s;
+  }
+  .btn:hover{filter:brightness(1.08);}
+  .btn.ghost{
+    background:linear-gradient(180deg,var(--steel-3),var(--steel-2));
+    color:var(--amber); box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 2px 6px rgba(0,0,0,.4);
+  }
+  .btn svg{width:16px; height:16px; fill:currentColor;}
+
+  /* ---------- hero ---------- */
+  .hero{
+    position:relative; min-height:100vh; display:flex; align-items:center;
+    padding:120px 0 80px; overflow:hidden;
+  }
+  .hero-bg{
+    position:absolute; inset:0; z-index:0;
+    background:url('assets/relief-bg.jpg') center/cover no-repeat;
+    opacity:.5;
+  }
+  .hero-bg::after{
+    content:""; position:absolute; inset:0;
+    background:
+      radial-gradient(ellipse 80% 70% at 30% 40%, transparent, rgba(22,25,30,.65) 75%),
+      linear-gradient(180deg, rgba(22,25,30,.55), rgba(22,25,30,.30) 40%, var(--steel-0) 96%);
+  }
+  .hero-inner{position:relative; z-index:1; width:100%;}
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--amber);
+    border:1px solid var(--amber-deep); border-radius:4px; padding:5px 11px;
+    background:rgba(240,168,48,.06); margin-bottom:26px;
+  }
+  .eyebrow .pulse{width:7px; height:7px; border-radius:50%; background:var(--signal);
+    box-shadow:0 0 8px var(--signal); animation:pulse 2.2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.35;}}
+  h1{
+    font-size:clamp(38px, 7vw, 78px); line-height:1.02; letter-spacing:.04em;
+    text-transform:uppercase; font-weight:700; margin-bottom:22px;
+    text-shadow:0 2px 0 #000, 0 0 40px rgba(240,168,48,.18);
+  }
+  h1 .amber{color:var(--amber);}
+  .lede{
+    font-size:clamp(16px, 2.1vw, 21px); color:var(--ink); max-width:620px;
+    margin-bottom:14px; line-height:1.5;
+  }
+  .lede-sub{font-size:15px; color:var(--ink-dim); max-width:600px; margin-bottom:34px;}
+  .hero-cta{display:flex; gap:14px; flex-wrap:wrap; align-items:center;}
+  .hero-cta .meta{font-size:12.5px; color:var(--ink-dim); letter-spacing:.04em;}
+
+  /* ---------- section scaffolding ---------- */
+  section{position:relative; padding:90px 0;}
+  .seg-label{
+    font-size:12px; letter-spacing:.24em; text-transform:uppercase; color:var(--amber);
+    margin-bottom:14px; display:flex; align-items:center; gap:12px;
+  }
+  .seg-label::before{content:""; width:26px; height:1px; background:var(--amber);}
+  h2{font-size:clamp(26px, 4vw, 40px); letter-spacing:.02em; text-transform:uppercase;
+     font-weight:700; line-height:1.1; margin-bottom:18px;}
+  .section-intro{color:var(--ink-dim); max-width:640px; font-size:16px; margin-bottom:48px;}
+
+  /* ---------- the hook (what it finds) ---------- */
+  .hook{
+    border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, rgba(240,168,48,.04), transparent 60%);
+  }
+  .hook .big{
+    font-size:clamp(22px, 3.4vw, 34px); line-height:1.45; max-width:880px; font-weight:400;
+  }
+  .hook .big b{color:var(--amber); font-weight:700;}
+  .hook .big .g{color:var(--signal);}
+
+  /* ---------- feature cards ---------- */
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:18px;}
+  .card{
+    position:relative; border:1px solid var(--line); border-radius:9px;
+    background:linear-gradient(180deg,var(--steel-2),var(--steel-1));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 1px 3px rgba(0,0,0,.4),
+               0 14px 34px -16px rgba(240,168,48,.30);
+    padding:24px 22px 26px;
+  }
+  .card .num{
+    font-size:12px; letter-spacing:.14em; color:var(--amber-deep); font-weight:700;
+    margin-bottom:14px;
+  }
+  .card h3{font-size:16px; letter-spacing:.06em; text-transform:uppercase; margin-bottom:10px; color:var(--ink);}
+  .card p{font-size:14px; color:var(--ink-dim); line-height:1.62;}
+  .card .ic{
+    width:38px; height:38px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--amber-deep); border-radius:7px; background:rgba(240,168,48,.07);
+  }
+  .card .ic svg{width:20px; height:20px; stroke:var(--amber); fill:none; stroke-width:1.6;}
+
+  /* ---------- showcase image band ---------- */
+  .showcase{background:var(--steel-0);}
+  .frame{
+    border:1px solid var(--line); border-radius:10px; overflow:hidden;
+    box-shadow:0 30px 70px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.03) inset,
+               0 14px 50px -20px rgba(240,168,48,.22);
+    background:var(--steel-1);
+  }
+  .frame img{display:block; width:100%; height:auto;}
+  .shot-grid{display:grid; grid-template-columns:1fr; gap:26px;}
+  .shot-cap{font-size:13px; color:var(--ink-dim); margin-top:12px; text-align:center; letter-spacing:.04em;}
+
+  /* ---------- science strip ---------- */
+  .science{border-top:1px solid var(--line);}
+  .sci-list{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px 30px;}
+  .sci-item{border-left:2px solid var(--amber-deep); padding:4px 0 4px 16px;}
+  .sci-item h4{font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--amber); margin-bottom:6px;}
+  .sci-item p{font-size:13.5px; color:var(--ink-dim); line-height:1.55;}
+
+  /* ---------- responsible use ---------- */
+  .responsible{
+    border:1px solid var(--signal); border-radius:9px;
+    background:rgba(70,211,154,.06); padding:26px 28px;
+  }
+  .responsible h3{font-size:15px; letter-spacing:.08em; text-transform:uppercase; color:var(--signal); margin-bottom:12px;}
+  .responsible p{font-size:14.5px; color:var(--ink); line-height:1.65;}
+
+  /* ---------- final CTA ---------- */
+  .final{
+    text-align:center; border-top:1px solid var(--line);
+    background:
+      radial-gradient(ellipse 60% 80% at 50% 0%, rgba(240,168,48,.10), transparent 70%),
+      var(--steel-0);
+  }
+  .final h2{margin-bottom:14px;}
+  .final p{color:var(--ink-dim); max-width:520px; margin:0 auto 30px; font-size:16px;}
+  .final .tags{margin-top:26px; font-size:12.5px; color:var(--ink-dim); letter-spacing:.06em;}
+  .final .tags b{color:var(--signal);}
+
+  footer{border-top:1px solid var(--line); padding:30px 0; font-size:12.5px; color:var(--ink-dim);}
+  footer .wrap{display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px;}
+
+  /* ---------- reveal animation (progressive enhancement) ---------- */
+  .js .reveal{opacity:0; transform:translateY(22px); transition:opacity .7s ease, transform .7s ease;}
+  .js .reveal.in{opacity:1; transform:none;}
+  @media (prefers-reduced-motion:reduce){
+    .js .reveal{opacity:1; transform:none; transition:none;}
+    html{scroll-behavior:auto;}
+    .pulse{animation:none;}
+  }
+  @media (max-width:560px){
+    .topbar .brand span.full{display:none;}
+    section{padding:64px 0;}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand display"><span class="dot">◇</span> <b>Structure&nbsp;Hunter</b> <span class="full" style="color:var(--ink-dim); letter-spacing:.14em;">// survey console</span></div>
+  <a class="btn ghost" href="https://github.com/jcjrmatlak404-oss/structure-hunter" target="_blank" rel="noopener">
+    <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    GitHub
+  </a>
+</div>
+
+<!-- ===================== HERO ===================== -->
+<header class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-inner">
+    <div class="wrap">
+      <span class="eyebrow"><span class="pulse"></span> open-source survey instrument</span>
+      <h1>Find what the<br><span class="amber">records forgot.</span></h1>
+      <p class="lede">Structure Hunter cross-references what is physically on the ground against what is officially registered — and surfaces the structures that exist in one but not the other.</p>
+      <p class="lede-sub">Forgotten homesteads. Unregistered outbuildings. Structures hidden under tree canopy. The ghost of a foundation in bare-earth LiDAR. All from public data, running on your own machine.</p>
+      <div class="hero-cta">
+        <a class="btn" href="https://github.com/jcjrmatlak404-oss/structure-hunter" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Get it on GitHub
+        </a>
+        <span class="meta">Free · open source · runs locally</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== THE HOOK ===================== -->
+<section class="hook">
+  <div class="wrap reveal">
+    <div class="seg-label">the idea</div>
+    <p class="big">A building footprint shows <b>what's there</b>. An address point and a tax parcel show <b>what's registered</b>. Usually they agree. Structure Hunter is built for the moments they <span class="g">don't</span> — a structure standing on the ground that no record will admit exists.</p>
+  </div>
+</section>
+
+<!-- ===================== FEATURES ===================== -->
+<section>
+  <div class="wrap">
+    <div class="reveal">
+      <div class="seg-label">capabilities</div>
+      <h2>An instrument, not a map</h2>
+      <p class="section-intro">Every stage is built to separate signal from noise — to tell a real hidden structure from an ordinary house, a tree, or a storage tank.</p>
+    </div>
+    <div class="cards">
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z"/><circle cx="17.5" cy="17.5" r="3.5"/></svg></div>
+        <div class="num">01</div>
+        <h3>Footprint × address join</h3>
+        <p>For every building, it finds the nearest registered address. No address close enough? That structure is unclaimed — a candidate. Fast nearest-neighbor search over a spatial grid.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M2 17l10-5 10 5M2 12l10-5 10 5M2 7l10-5 10 5"/></svg></div>
+        <div class="num">02</div>
+        <h3>LiDAR structure detection</h3>
+        <p>Builds a bare-earth model from aerial laser point clouds and flags smooth, raised, building-shaped objects the footprint maps never recorded — including ones beneath bare winter canopy.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
+        <div class="num">03</div>
+        <h3>Live relief rendering</h3>
+        <p>Re-light and stretch the terrain instantly in your browser — sun angle, vertical exaggeration, hillshade, multi-directional, and sky-view shading — to pull faint foundations and earthworks out of the ground.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><path d="M15 8h5v8h-5"/></svg></div>
+        <div class="num">04</div>
+        <h3>Shape filtering</h3>
+        <p>Round storage tanks are building-sized and fool every other filter. Geometric descriptors — circularity and convex-hull solidity — flag lone circles as tanks while keeping any circle with structure attached.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div>
+        <div class="num">05</div>
+        <h3>Calibrate before you hunt</h3>
+        <p>A fast pre-pass measures how far registered buildings sit from their address in your area, shows the distribution as a histogram, and recommends your threshold — so you tune from real data, not guesswork.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+        <div class="num">06</div>
+        <h3>Isolation &amp; clearance</h3>
+        <p>Find structures with no registered neighbors and no other building within a set distance — the signature of something standing genuinely alone. Stack it with size and shape for a precise target.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== SHOWCASE ===================== -->
+<section class="showcase">
+  <div class="wrap">
+    <div class="reveal">
+      <div class="seg-label">the console</div>
+      <h2>Built like field equipment</h2>
+      <p class="section-intro">A brushed-steel control panel that runs as a local web app — define an area, choose a public data source, and run a scan. No accounts, no cloud, no data leaving your machine.</p>
+    </div>
+    <div class="shot-grid reveal">
+      <div>
+        <div class="frame"><img src="assets/console.png" alt="The Structure Hunter console interface" loading="lazy"></div>
+        <p class="shot-cap">The survey console — data sources, tuning, isolation filters, and LiDAR refine.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== SCIENCE ===================== -->
+<section class="science">
+  <div class="wrap">
+    <div class="reveal">
+      <div class="seg-label">under the hood</div>
+      <h2>Real remote sensing</h2>
+      <p class="section-intro">No black boxes. The methods are the same ones used in serious GIS and archaeological survey — and the tool explains every one of them inside its own panels.</p>
+    </div>
+    <div class="sci-list reveal">
+      <div class="sci-item"><h4>DSM − DTM differencing</h4><p>Subtract the bare-earth surface from the top-of-everything surface to get height above ground; buildings rise as flat plateaus, trees as ragged ones.</p></div>
+      <div class="sci-item"><h4>Roughness scoring</h4><p>The height variation across a blob separates smooth roofs from scattered foliage — the core building-versus-vegetation signal.</p></div>
+      <div class="sci-item"><h4>Sky-view factor</h4><p>Shade each point by how much open sky it can see, with no directional bias, to reveal subtle pits, mounds, and edges archaeologists look for.</p></div>
+      <div class="sci-item"><h4>Convex-hull solidity</h4><p>A monotone-chain hull measures how notch-free a footprint is, distinguishing a clean circular tank from a circle with an annex.</p></div>
+      <div class="sci-item"><h4>Shoelace geometry</h4><p>Polygon area and centroid straight from the vertices, feeding a grid spatial index that keeps nearest-address queries fast.</p></div>
+      <div class="sci-item"><h4>Evidence-based thresholds</h4><p>The registration cutoff is measured from the data's own distribution, not assumed — and re-measured for every area you scan.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== RESPONSIBLE USE ===================== -->
+<section>
+  <div class="wrap reveal">
+    <div class="responsible">
+      <h3>◇ A tool for legitimate survey</h3>
+      <p>Structure Hunter is for historical and archaeological survey, research on your own property, land and conservation work, and education. Findings are candidates for a closer, lawful look — never conclusions. It is not for trespass, surveillance, or targeting anyone. "No record" often just means "not yet mapped," which is exactly where forgotten places hide.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FINAL CTA ===================== -->
+<section class="final">
+  <div class="wrap reveal">
+    <div class="seg-label" style="justify-content:center;">get started</div>
+    <h2>Go find the forgotten places</h2>
+    <p>Install Ruby, download the repo, run one command, open your browser. The README walks you through everything.</p>
+    <a class="btn" href="https://github.com/jcjrmatlak404-oss/structure-hunter" target="_blank" rel="noopener" style="font-size:15px; padding:15px 30px;">
+      <svg viewBox="0 0 16 16" style="width:18px;height:18px;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      View on GitHub
+    </a>
+    <p class="tags"><b>Free.</b> &nbsp;·&nbsp; <b>Open source (MIT).</b> &nbsp;·&nbsp; <b>Runs on your machine.</b></p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Structure Hunter — built with public USGS LiDAR, OpenStreetMap, and address &amp; parcel data.</span>
+    <span><a href="https://github.com/jcjrmatlak404-oss/structure-hunter" target="_blank" rel="noopener">github.com/jcjrmatlak404-oss/structure-hunter</a></span>
+  </div>
+</footer>
+
+<script>
+  // mark JS active so reveal animations engage (content stays visible without JS)
+  document.documentElement.className += ' js';
+  // scroll-reveal
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, {threshold:0.12, rootMargin:'0px 0px -40px 0px'});
+  document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+</script>
+</body>
+</html>
